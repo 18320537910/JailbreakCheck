@@ -10,6 +10,7 @@
 #import <dlfcn.h>
 #import <sys/types.h>
 
+@implementation UserCust
 static char *JbPaths[] = {"/Applications/Cydia.app",
     "/usr/sbin/sshd",
     "/bin/bash",
@@ -20,25 +21,22 @@ static char *JbPaths[] = {"/Applications/Cydia.app",
 static NSSet *sDylibSet ; // 需要检测的动态库
 static BOOL SCHECK_USER = NO; /// 检测是否越狱
 
-@implementation UserCust
-
-
 + (void)load {
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    sDylibSet  = [NSSet setWithObjects:
-                       @"/usr/lib/CepheiUI.framework/CepheiUI",
-                       @"/usr/lib/libsubstitute.dylib",
-                       @"/usr/lib/substitute-inserter.dylib",
-                       @"/usr/lib/substitute-loader.dylib",
-                       @"/usr/lib/substrate/SubstrateLoader.dylib",
-                       @"/usr/lib/substrate/SubstrateInserter.dylib",
-                       @"/Library/MobileSubstrate/MobileSubstrate.dylib",
-                       @"/Library/MobileSubstrate/DynamicLibraries/0Shadow.dylib",
-                  
-                  nil];
-    _dyld_register_func_for_add_image(_check_image);
-  });
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sDylibSet  = [NSSet setWithObjects:
+                      @"/usr/lib/CepheiUI.framework/CepheiUI",
+                      @"/usr/lib/libsubstitute.dylib",
+                      @"/usr/lib/substitute-inserter.dylib",
+                      @"/usr/lib/substitute-loader.dylib",
+                      @"/usr/lib/substrate/SubstrateLoader.dylib",
+                      @"/usr/lib/substrate/SubstrateInserter.dylib",
+                      @"/Library/MobileSubstrate/MobileSubstrate.dylib",
+                      @"/Library/MobileSubstrate/DynamicLibraries/0Shadow.dylib",
+                      
+                      nil];
+        _dyld_register_func_for_add_image(_check_image);
+    });
 }
 
 + (instancetype)sharedInstance {
@@ -53,59 +51,48 @@ static BOOL SCHECK_USER = NO; /// 检测是否越狱
 
 // 监听image加载，从这里判断动态库是否加载，因为其他的检测动态库的方案会被hook
 static void _check_image(const struct mach_header *header,
-                                      intptr_t slide) {
-  // hook Image load
-  if (SCHECK_USER) {
-    // 检测后就不在检测
-    return;
-  }
-
-  // 检测的lib
-  Dl_info info;
-  // 0表示加载失败了，这里大概率是被hook导致的
-  if (dladdr(header, &info) == 0) {
-    char *dlerro = dlerror();
-    // 获取失败了 但是返回了dli_fname, 说明被人hook了，目前看的方案都是直接返回0来绕过的
-    if(dlerro == NULL && info.dli_fname != NULL) {
-      NSString *libName = [NSString stringWithUTF8String:info.dli_fname];
-      // 判断有没有在动态列表里面
-      if ([sDylibSet containsObject:libName]) {
-        SCHECK_USER = YES;
-      }
+                         intptr_t slide) {
+    // hook Image load
+    if (SCHECK_USER) {
+        // 检测后就不在检测
+        return;
     }
-    return;
-  }
+    
+    // 检测的lib
+    Dl_info info;
+    // 0表示加载失败了，这里大概率是被hook导致的
+    if (dladdr(header, &info) == 0) {
+        char *dlerro = dlerror();
+        // 获取失败了 但是返回了dli_fname, 说明被人hook了，目前看的方案都是直接返回0来绕过的
+        if(dlerro == NULL && info.dli_fname != NULL) {
+            NSString *libName = [NSString stringWithUTF8String:info.dli_fname];
+            // 判断有没有在动态列表里面
+            if ([sDylibSet containsObject:libName]) {
+                SCHECK_USER = YES;
+            }
+        }
+        return;
+    }
 }
 
 
 // 越狱检测
-- (BOOL)UVItinitse {
-  
-    if (SCHECK_USER) {
-      return YES;
+- (void)UVItinitseWithBlock:(CheckBlock)block {
+    NSMutableDictionary<NSString *, NSNumber *> *dic = [NSMutableDictionary dictionary];
+    BOOL isjail = NO;
+    
+    dic[@"_check_image"] = @(SCHECK_USER);
+    dic[@"isStatNotSystemLib"] = @(isStatNotSystemLib());
+    dic[@"isDebugged"] = @(isDebugged());
+    dic[@"isInjectedWithDynamicLibrary"] = @(isInjectedWithDynamicLibrary());
+    dic[@"JCheckKuyt"] = @(JCheckKuyt());
+    dic[@"dyldEnvironmentVariables"] = @(dyldEnvironmentVariables());
+    
+    NSLog(@"检测结果:\n%@",dic);
+    for (NSString* key in dic.allKeys) {
+        if (dic[key].boolValue) isjail = YES;
     }
-
-    if (isStatNotSystemLib()) {
-        return YES;
-    }
-
-    if (isDebugged()) {
-        return YES;
-    }
-
-    if (isInjectedWithDynamicLibrary()) {
-        return YES;
-    }
-
-    if (JCheckKuyt()) {
-        return YES;
-    }
-
-    if (dyldEnvironmentVariables()) {
-        return YES;
-    }
-
-    return NO;
+    block(isjail,[dic copy]);
 }
 
 CFRunLoopSourceRef gSocketSource;
@@ -145,18 +132,18 @@ BOOL JCheckKuyt()
 {
     
     if(TARGET_IPHONE_SIMULATOR)return NO;
-
+    
     //Check cydia URL hook canOpenURL 来绕过
     if([[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"cydia://package/com.avl.com"]])
     {
         return YES;
     }
-
+    
     if([[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"cydia://package/com.example.package"]])
     {
         return YES;
     }
-
+    
     NSArray* checks = [[NSArray alloc] initWithObjects:@"/Application/Cydia.app",
                        @"/Library/MobileSubstrate/MobileSubstrate.dylib",
                        @"/bin/bash",
@@ -216,8 +203,8 @@ BOOL JCheckKuyt()
             return YES;
         }
     }
-  
-
+    
+    
     //Check process forking
     // hook fork
     int pid = fork();
@@ -229,18 +216,18 @@ BOOL JCheckKuyt()
     {
         return YES;
     }
-
-  
-//     check has class only used in breakJail like HBPreferences. 越狱常用的类，这里无法绕过，只要多找一些特征类就可以，注意，很多反越狱插件会混淆，所以可能要通过查关键方法来识别
+    
+    
+    //     check has class only used in breakJail like HBPreferences. 越狱常用的类，这里无法绕过，只要多找一些特征类就可以，注意，很多反越狱插件会混淆，所以可能要通过查关键方法来识别
     NSArray *checksClass = [[NSArray alloc] initWithObjects:@"HBPreferences",nil];
     for(NSString *className in checksClass)
     {
-      if (NSClassFromString(className) != NULL) {
-        return YES;
-      }
+        if (NSClassFromString(className) != NULL) {
+            return YES;
+        }
     }
-  
-//    Check permission to write to /private hook FileManager 和 writeToFile来绕过
+    
+    //    Check permission to write to /private hook FileManager 和 writeToFile来绕过
     NSString *path = @"/private/avl.txt";
     NSFileManager *fileManager = [NSFileManager defaultManager];
     @try {
@@ -252,7 +239,7 @@ BOOL JCheckKuyt()
         {
             return YES;
         }
-
+        
         return NO;
     } @catch (NSException *exception) {
         return NO;
@@ -261,14 +248,14 @@ BOOL JCheckKuyt()
 
 BOOL isInjectedWithDynamicLibrary()
 {
-  unsigned int outCount = 0;
-  const char **images =  objc_copyImageNames(&outCount);
-  for (int i = 0; i < outCount; i++) {
-      printf("%s\n", images[i]);
-  }
-  
-  
-  int i=0;
+    unsigned int outCount = 0;
+    const char **images =  objc_copyImageNames(&outCount);
+    for (int i = 0; i < outCount; i++) {
+        printf("%s\n", images[i]);
+    }
+    
+    
+    int i=0;
     while(true){
         // hook _dyld_get_image_name方法可以绕过
         const char *name = _dyld_get_image_name(i++);
@@ -276,11 +263,11 @@ BOOL isInjectedWithDynamicLibrary()
             break;
         }
         if (name != NULL) {
-          NSString *libName = [NSString stringWithUTF8String:name];
-          if ([sDylibSet containsObject:libName]) {
-            return YES;
-          }
-
+            NSString *libName = [NSString stringWithUTF8String:name];
+            if ([sDylibSet containsObject:libName]) {
+                return YES;
+            }
+            
         }
     }
     return NO;

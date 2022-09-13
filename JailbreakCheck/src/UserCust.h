@@ -18,11 +18,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void(^CheckBlock)(BOOL isJail, NSDictionary *resultDic);
+
 @interface UserCust : NSObject
 
 + (instancetype)sharedInstance;
 
-- (BOOL)UVItinitse;
+- (void)UVItinitseWithBlock:(CheckBlock)block;
 
 - (void)disable_gdb;
 
